@@ -1,0 +1,9 @@
+.git
+.next
+.next-3001
+node_modules
+data/backups
+data/operations.sqlite
+data/operations.sqlite-shm
+data/operations.sqlite-wal
+*.log

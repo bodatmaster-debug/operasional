@@ -24,14 +24,25 @@ from the documented GitHub mirror and require an internet connection.
 
 ## Google sign-in
 
-Google sign-in is optional. To enable it locally, create a Google OAuth Web
-client with `http://127.0.0.1:3001` as an authorized JavaScript origin, then
-set `NEXT_PUBLIC_GOOGLE_CLIENT_ID` in the root `.env.local` file and restart the
-development server. The client ID is public; no client secret is needed.
+Google sign-in uses Supabase OAuth for the primary login button. Set
+`NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in the
+root `.env.local` file, then restart the development server. Add
+`http://127.0.0.1:3000/auth/callback` to the Supabase Auth redirect URL allowlist
+and configure the Google provider's Supabase callback URL in Google Cloud.
 
-The server validates Google's signed ID token, audience, issuer, and verified
-email. Google registrations still require Admin approval. Existing local
-accounts are not linked automatically by matching email.
+The callback exchanges the PKCE code, checks the signed-in user and
+`public.user_profiles` status, then issues a local SQLite session for existing
+local APIs. Only active, non-revoked, non-banned profiles can enter the app;
+non-admin profiles also need recorded EULA acceptance. New Supabase Auth users
+remain pending until an Admin approves them. Accounts are never linked by email
+alone; existing local Google accounts can continue through the legacy Google
+sign-in button on the login screen.
+
+Local Google registration still uses Google Identity Services. To enable it,
+create a Google OAuth Web client with `http://127.0.0.1:3000` as an authorized
+JavaScript origin and set `NEXT_PUBLIC_GOOGLE_CLIENT_ID` in `.env.local`. The
+client ID is public; no client secret is needed. Google registrations require
+Admin approval.
 
 ## Stack
 
@@ -40,5 +51,22 @@ accounts are not linked automatically by matching email.
 - Recharts and date-fns for future dashboard visualizations and dates
 - React Hook Form and Zod for future validated forms
 
-SQLite is the active local runtime data store. No Supabase connection or seed
-data is configured.
+Supabase SSR clients are configured, and the schema migrations in `supabase/`
+create the operational PostgreSQL tables. The current local operational data
+snapshot was imported into the configured Supabase project; local account
+credentials, sessions, pending registrations, and email-change verification
+data were intentionally excluded.
+
+SQLite and local authentication remain the active application runtime. The
+Supabase Auth profile and role/tenant RLS migration has been applied to the
+configured Supabase project. New Auth accounts receive a `user`/`pending`
+profile, and existing Auth accounts are backfilled during migration. The
+first confirmed account was promoted to the initial active Admin. These
+database policies do not switch the application's API routes or login flow
+from SQLite to Supabase.
+
+The `storage_buckets` migration prepares private `organization-assets` and
+`user-avatars` buckets with a 5 MiB limit and image MIME allowlists. No
+`storage.objects` policies are added yet, so uploads and downloads remain
+blocked until tenant-aware Storage policies are implemented. The application
+does not upload files to these buckets yet.

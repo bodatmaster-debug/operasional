@@ -382,6 +382,196 @@ function createToken() {
   return randomBytes(32).toString("base64url")
 }
 
+export async function createSupabaseGoogleSession(profile: {
+  userId: string
+  googleSub: string
+  email: string
+  emailVerifiedAt: string | null
+  eulaVersion: string | null
+  eulaAcceptedAt: string | null
+  username: string
+  fullName: string
+  role: LocalRole
+}) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(profile.userId)) {
+    throw new LocalAuthError("Identitas akun Google tidak valid.", "invalid-account-id")
+  }
+  const username = validateUsername(profile.username)
+  const fullName = validateFullName(profile.fullName)
+  const email = normalizeProfileEmail(profile.email)
+  const googleSub = profile.googleSub.trim()
+  if (
+    !username ||
+    !fullName ||
+    !email ||
+    !isLocalRole(profile.role) ||
+    googleSub.length < 1 ||
+    googleSub.length > 255
+  ) {
+    throw new LocalAuthError("Profil akun Google tidak valid.", "invalid-google-identity")
+  }
+
+  const passwordHash = await hashPassword(randomBytes(32).toString("base64url"))
+  const db = getLocalDatabase()
+  const now = new Date()
+  const nowIso = now.toISOString()
+  const token = createToken()
+  db.exec("BEGIN IMMEDIATE")
+  try {
+    const linkedIdentity = db
+      .prepare(
+        "SELECT account_id FROM account_google_identity WHERE google_sub = ?",
+      )
+      .get(googleSub) as { account_id: string } | undefined
+    const locallyAcceptedEula = db
+      .prepare(
+        `SELECT 1 FROM account_registration
+         WHERE google_sub = ? AND status = 'approved'
+           AND eula_version IS NOT NULL AND eula_accepted_at IS NOT NULL`,
+      )
+      .get(googleSub)
+    if (
+      profile.role !== "admin" &&
+      (!profile.eulaVersion || !profile.eulaAcceptedAt) &&
+      !locallyAcceptedEula
+    ) {
+      throw new LocalAuthError(
+        "Persetujuan EULA untuk akun Google ini belum tercatat.",
+        "eula-required",
+      )
+    }
+    const accountId = linkedIdentity?.account_id ?? profile.userId
+    let account = db
+      .prepare(
+        `SELECT id, username, access_revoked_at, banned_until
+         FROM account WHERE id = ?`,
+      )
+      .get(accountId) as
+      | {
+          id: string
+          username: string
+          access_revoked_at: string | null
+          banned_until: number | null
+        }
+      | undefined
+
+    if (account && (account.access_revoked_at || (account.banned_until ?? 0) > now.getTime())) {
+      throw new LocalAuthError(
+        "Akses akun lokal telah dicabut atau diblokir. Hubungi Admin.",
+        "account-status-conflict",
+      )
+    }
+
+    const emailConflict = db
+      .prepare(
+        `SELECT 1 FROM account_profile
+         WHERE email = ? COLLATE NOCASE AND account_id <> ?`,
+      )
+      .get(email, accountId)
+    const pendingEmailConflict = db
+      .prepare(
+        `SELECT 1 FROM account_registration
+         WHERE email = ? COLLATE NOCASE AND status = 'pending'`,
+      )
+      .get(email)
+    if (emailConflict || pendingEmailConflict) {
+      throw new LocalAuthError(
+        "Email ini sudah digunakan akun lokal lain. Akun tidak ditautkan otomatis.",
+        "google-email-in-use",
+      )
+    }
+
+    if (!account) {
+      const usernameTaken = db
+        .prepare("SELECT 1 FROM account WHERE username = ? COLLATE NOCASE")
+        .get(username)
+      const accountUsername = usernameTaken
+        ? `google-${profile.userId.replaceAll("-", "").slice(0, 12)}`
+        : username
+      if (
+        !validateUsername(accountUsername) ||
+        db
+          .prepare("SELECT 1 FROM account WHERE username = ? COLLATE NOCASE")
+          .get(accountUsername)
+      ) {
+        throw new LocalAuthError(
+          "Username akun Google tidak dapat dibuat tanpa benturan.",
+          "username-taken",
+        )
+      }
+
+      db.prepare(
+        `INSERT INTO account (id, username, password_hash, role, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(accountId, accountUsername, passwordHash, profile.role, nowIso, nowIso)
+      if (profile.role === "admin") {
+        db.prepare(
+          `INSERT INTO account_permissions (
+            account_id, can_manage_directory, can_manage_assets, can_manage_maintenance
+          ) VALUES (?, 1, 1, 1)`,
+        ).run(accountId)
+      } else {
+        db.prepare("INSERT INTO account_permissions (account_id) VALUES (?)").run(accountId)
+      }
+      db.prepare(
+        `INSERT INTO account_profile (
+          account_id, email, email_verified_at, full_name, updated_at
+        ) VALUES (?, ?, ?, ?, ?)`,
+      ).run(accountId, email, profile.emailVerifiedAt, fullName, nowIso)
+      account = {
+        id: accountId,
+        username: accountUsername,
+        access_revoked_at: null,
+        banned_until: null,
+      }
+    } else {
+      db.prepare("UPDATE account SET role = ?, updated_at = ? WHERE id = ?").run(
+        profile.role,
+        nowIso,
+        accountId,
+      )
+      db.prepare(
+        `INSERT INTO account_profile (
+          account_id, email, email_verified_at, full_name, updated_at
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(account_id) DO UPDATE SET
+          email = excluded.email,
+          email_verified_at = excluded.email_verified_at,
+          full_name = excluded.full_name,
+          updated_at = excluded.updated_at`,
+      ).run(accountId, email, profile.emailVerifiedAt, fullName, nowIso)
+    }
+
+    if (!linkedIdentity) {
+      db.prepare(
+        `INSERT INTO account_google_identity (google_sub, account_id, email, linked_at)
+         VALUES (?, ?, ?, ?)`,
+      ).run(googleSub, accountId, email, nowIso)
+    }
+    insertSession(token, accountId)
+    db.exec("COMMIT")
+    return {
+      user: {
+        id: accountId,
+        username: account.username,
+        role: profile.role,
+        permissions: getAccountPermissions(profile.role),
+        pagePermissions: getAccountPagePermissions(profile.role),
+      } satisfies LocalUser,
+      token,
+    }
+  } catch (error) {
+    if (db.isTransaction) db.exec("ROLLBACK")
+    if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) {
+      throw new LocalAuthError(
+        "Akun Google ini sudah terhubung ke akun lokal lain.",
+        "google-account-exists",
+      )
+    }
+    throw error
+  }
+}
+
 export function hasAccounts() {
   return Boolean(
     getLocalDatabase().prepare("SELECT 1 AS present FROM account LIMIT 1").get(),

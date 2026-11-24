@@ -33,10 +33,11 @@ import {
 } from "@fluentui/react-components"
 import type { CarouselAnnouncerFunction } from "@fluentui/react-components"
 import { Slide, Stagger } from "@fluentui/react-motion-components-preview"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { isLocalPagePermissions } from "@/lib/access-types"
 import type { LocalUser } from "@/lib/access-types"
 import { EULA_ACCEPTANCE_REQUIRED_MESSAGE } from "@/lib/eula"
+import { createClient as createSupabaseClient } from "@/utils/supabase/client"
 
 type GoogleCredentialResponse = { credential?: string }
 type GoogleButtonOptions = {
@@ -71,6 +72,53 @@ declare global {
 }
 
 const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID?.trim() ?? ""
+const supabaseConfigured = Boolean(
+  process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+)
+const googleAuthErrors: Record<string, string> = {
+  cancelled: "Masuk dengan Google dibatalkan.",
+  provider: "Google OAuth belum selesai dikonfigurasi di Supabase.",
+  missing_code: "Kode autentikasi Google tidak ditemukan. Coba lagi.",
+  exchange: "Sesi Google tidak dapat diverifikasi. Coba masuk kembali.",
+  identity: "Identitas Google tidak dapat diverifikasi.",
+  profile: "Profil Supabase tidak lengkap atau tidak dapat diakses.",
+  denied: "Akses akun telah dicabut atau diblokir. Hubungi Admin.",
+  rejected: "Pendaftaran akun Google ditolak oleh Admin.",
+  eula: "Persetujuan EULA belum tercatat untuk akun Google ini.",
+  account_conflict:
+    "Email sudah digunakan akun lokal lain. Akun tidak ditautkan otomatis.",
+  unexpected: "Terjadi kesalahan saat menyelesaikan autentikasi Google.",
+}
+
+function GoogleMark() {
+  return (
+    <svg
+      aria-hidden="true"
+      width="20"
+      height="20"
+      viewBox="0 0 48 48"
+      focusable="false"
+    >
+      <path
+        fill="#EA4335"
+        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+      />
+      <path
+        fill="#4285F4"
+        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 3.02-2.27 5.58-4.77 7.3l7.73 6c4.51-4.17 7.08-10.31 7.08-17.77z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M10.53 28.59A14.4 14.4 0 0 1 9.75 24c0-1.59.27-3.13.75-4.59l-7.98-6.19A23.9 23.9 0 0 0 0 24c0 3.88.93 7.53 2.56 10.78l7.97-6.19z"
+      />
+      <path
+        fill="#34A853"
+        d="M24 48c6.48 0 11.93-2.13 15.9-5.77l-7.73-6c-2.15 1.45-4.92 2.3-8.17 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.97 6.19C6.51 42.62 14.62 48 24 48z"
+      />
+    </svg>
+  )
+}
 
 const useStyles = makeStyles({
   page: {
@@ -163,6 +211,11 @@ const useStyles = makeStyles({
     minHeight: "40px",
   },
   googleFallbackButton: { width: "100%" },
+  supabaseGoogleButton: {
+    display: "flex",
+    justifyContent: "center",
+    width: "100%",
+  },
   switchPrompt: {
     display: "block",
     marginTop: "20px",
@@ -482,15 +535,33 @@ async function postAuth(
   return payload.user
 }
 
-export function LocalAuthScreen({
-  setupRequired,
-  onAuthenticated,
-  mode = "login",
-}: {
+type LocalAuthScreenProps = {
   setupRequired: boolean
   onAuthenticated: (user: LocalUser) => void
   mode?: "login" | "register"
-}) {
+}
+
+export function LocalAuthScreen(props: LocalAuthScreenProps) {
+  const styles = useStyles()
+  return (
+    <React.Suspense
+      fallback={
+        <div className={styles.formContent} aria-busy="true">
+          <Spinner size="tiny" />
+        </div>
+      }
+    >
+      <LocalAuthScreenContent {...props} />
+    </React.Suspense>
+  )
+}
+
+function LocalAuthScreenContent({
+  setupRequired,
+  onAuthenticated,
+  mode = "login",
+}: LocalAuthScreenProps) {
+  const searchParams = useSearchParams()
   const styles = useStyles()
   const [username, setUsername] = React.useState("")
   const [password, setPassword] = React.useState("")
@@ -501,11 +572,15 @@ export function LocalAuthScreen({
   const router = useRouter()
   const isRegistering = !setupRequired && mode === "register"
   const [activeSellingPoint, setActiveSellingPoint] = React.useState(0)
-  const [error, setError] = React.useState("")
+  const [error, setError] = React.useState(
+    () => googleAuthErrors[searchParams.get("auth_error") ?? ""] ?? "",
+  )
   const [submitting, setSubmitting] = React.useState(false)
   const [googleScriptReady, setGoogleScriptReady] = React.useState(false)
+  const [legacyGoogleOpen, setLegacyGoogleOpen] = React.useState(false)
   const googleButtonRef = React.useRef<HTMLDivElement>(null)
   const googleRequestInFlight = React.useRef(false)
+  const useGoogleIdentityServices = isRegistering || legacyGoogleOpen
   const authStateRef = React.useRef({
     onAuthenticated,
     router,
@@ -566,12 +641,40 @@ export function LocalAuthScreen({
     [],
   )
 
+  async function handleSupabaseGoogleSignIn() {
+    if (!supabaseConfigured) {
+      setError("Supabase Auth belum dikonfigurasi pada aplikasi ini.")
+      return
+    }
+    setError("")
+    setSubmitting(true)
+    try {
+      const supabase = createSupabaseClient()
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: { prompt: "select_account" },
+        },
+      })
+      if (oauthError) throw oauthError
+    } catch (failure) {
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : "Permintaan autentikasi Google gagal.",
+      )
+      setSubmitting(false)
+    }
+  }
+
   React.useEffect(() => {
     const container = googleButtonRef.current
     if (
       !googleClientId ||
       !googleScriptReady ||
       setupRequired ||
+      !useGoogleIdentityServices ||
       !container ||
       !window.google
     ) {
@@ -601,6 +704,7 @@ export function LocalAuthScreen({
     handleGoogleCredential,
     isRegistering,
     setupRequired,
+    useGoogleIdentityServices,
   ])
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -702,7 +806,7 @@ export function LocalAuthScreen({
             <Field
               className={styles.floatingField}
               data-filled={username.length > 0}
-              label="Username"
+              label="Email"
             >
               <Input
                 autoComplete="username"
@@ -822,37 +926,81 @@ export function LocalAuthScreen({
                   <Text size={200}>atau</Text>
                   <span className={styles.socialDividerLine} />
                 </div>
-                {googleClientId ? (
-                  <>
-                    <div
-                      ref={googleButtonRef}
-                      className={styles.googleButtonContainer}
-                      aria-label={
-                        isRegistering ? "Daftar dengan Google" : "Masuk dengan Google"
-                      }
-                    />
-                    <Script
-                      id="google-identity-services"
-                      src="https://accounts.google.com/gsi/client"
-                      strategy="afterInteractive"
-                      onReady={() => setGoogleScriptReady(true)}
-                      onError={() =>
-                        setError("Layanan Google Sign-In gagal dimuat.")
-                      }
-                    />
-                  </>
+                {isRegistering ? (
+                  googleClientId ? (
+                    <>
+                      <div
+                        ref={googleButtonRef}
+                        className={styles.googleButtonContainer}
+                        aria-label="Daftar dengan Google"
+                      />
+                      <Script
+                        id="google-identity-services"
+                        src="https://accounts.google.com/gsi/client"
+                        strategy="afterInteractive"
+                        onReady={() => setGoogleScriptReady(true)}
+                        onError={() =>
+                          setError("Layanan Google Sign-In gagal dimuat.")
+                        }
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        className={styles.googleFallbackButton}
+                        appearance="secondary"
+                        disabled
+                      >
+                        Daftar dengan Google
+                      </Button>
+                      <Text size={200} className={styles.hint}>
+                        Google Sign-In belum dikonfigurasi untuk alamat lokal ini.
+                      </Text>
+                    </>
+                  )
                 ) : (
                   <>
                     <Button
-                      className={styles.googleFallbackButton}
+                      className={styles.supabaseGoogleButton}
                       appearance="secondary"
-                      disabled
+                      icon={<GoogleMark />}
+                      onClick={handleSupabaseGoogleSignIn}
+                      disabled={submitting}
+                      aria-busy={submitting}
                     >
-                      {isRegistering ? "Daftar dengan Google" : "Masuk dengan Google"}
+                      {submitting ? <Spinner size="tiny" /> : "Lanjutkan dengan Google"}
                     </Button>
-                    <Text size={200} className={styles.hint}>
-                      Google Sign-In belum dikonfigurasi untuk alamat lokal ini.
-                    </Text>
+                    {googleClientId && (
+                      <>
+                        <Button
+                          appearance="subtle"
+                          disabled={submitting}
+                          onClick={() => setLegacyGoogleOpen((open) => !open)}
+                        >
+                          {legacyGoogleOpen
+                            ? "Sembunyikan login Google lokal lama"
+                            : "Akun Google lokal lama? Masuk dengan cara lama"}
+                        </Button>
+                        {legacyGoogleOpen && (
+                          <>
+                            <div
+                              ref={googleButtonRef}
+                              className={styles.googleButtonContainer}
+                              aria-label="Masuk dengan akun Google lokal lama"
+                            />
+                            <Script
+                              id="google-identity-services"
+                              src="https://accounts.google.com/gsi/client"
+                              strategy="afterInteractive"
+                              onReady={() => setGoogleScriptReady(true)}
+                              onError={() =>
+                                setError("Layanan Google Sign-In lama gagal dimuat.")
+                              }
+                            />
+                          </>
+                        )}
+                      </>
+                    )}
                   </>
                 )}
               </div>
