@@ -1,0 +1,16 @@
+@import "tailwindcss";
+@source not "../../data";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "Segoe UI Variable", system-ui, sans-serif;
+}

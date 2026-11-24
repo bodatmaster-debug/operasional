@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" fill="none">
+  <defs>
+    <linearGradient id="space" x1="800" y1="0" x2="800" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D8E9E8"/>
+      <stop offset=".48" stop-color="#9CB8B8"/>
+      <stop offset="1" stop-color="#526F79"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="800" y1="560" x2="800" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A7BFC0"/>
+      <stop offset="1" stop-color="#667F86"/>
+    </linearGradient>
+    <linearGradient id="crate" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop stop-color="#D5B878"/>
+      <stop offset="1" stop-color="#A17A45"/>
+    </linearGradient>
+    <radialGradient id="light" cx="0" cy="0" r="1" gradientTransform="matrix(0 440 -660 0 800 305)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5E9C9" stop-opacity=".72"/>
+      <stop offset="1" stop-color="#F5E9C9" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <path fill="url(#space)" d="M0 0h1600v1000H0z"/>
+  <path fill="url(#light)" d="M0 0h1600v1000H0z"/>
+  <path fill="#647F83" fill-opacity=".26" d="M0 142 590 0h420l590 142v40H0z"/>
+  <path stroke="#ECF2E8" stroke-opacity=".34" stroke-width="18" d="m75 120 465 119m985-119-465 119"/>
+  <path stroke="#ECF2E8" stroke-opacity=".22" stroke-width="14" d="m240 80 385 153m735-153L975 233"/>
+  <path fill="#D9E5DD" fill-opacity=".24" d="M535 233h530v356H535z"/>
+  <path fill="#6F8E91" fill-opacity=".42" d="M602 284h396v305H602z"/>
+  <path stroke="#E8F0E8" stroke-opacity=".38" stroke-width="12" d="M800 285v304"/>
+  <path fill="url(#floor)" d="M0 588h1600v412H0z"/>
+  <path stroke="#DDE8DD" stroke-opacity=".24" stroke-width="8" d="M800 590 140 1000m660-410 660 410M800 590v410"/>
+  <g stroke="#EAF0E8" stroke-opacity=".45" stroke-width="18">
+    <path d="M91 300v385m0-310h330m-330 145h330m-330 145h330"/>
+    <path d="M1509 300v385m-330-310h330m-330 145h330m-330 145h330"/>
+  </g>
+  <g fill="#88A4A0" fill-opacity=".92">
+    <path d="M115 341h116v78H115zm139 0h143v78H254zm-139 157h170v78H115zm193 0h140v78H308z"/>
+    <path d="M1369 341h116v78h-116zm-159 0h136v78h-136zm159 157h170v78h-170zm-159 0h137v78h-137z"/>
+  </g>
+  <g fill="url(#crate)">
+    <path d="M237 669h196v136H237z"/>
+    <path d="M270 609h164v120H270z"/>
+    <path d="M1171 704h210v142h-210z"/>
+    <path d="M1210 608h166v130h-166z"/>
+  </g>
+  <g stroke="#F0D8A5" stroke-opacity=".5" stroke-width="8">
+    <path d="M270 671h130m-130 28h130m-105-90v120"/>
+    <path d="M1202 751h150m-150 30h150m-110-172v130"/>
+  </g>
+  <path fill="#D6E4DC" fill-opacity=".28" d="M0 826h1600v18H0z"/>
+  <path stroke="#E9E8D8" stroke-opacity=".34" stroke-width="10" d="M0 875h1600"/>
+</svg>

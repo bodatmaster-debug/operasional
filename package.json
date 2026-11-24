@@ -1,0 +1,54 @@
+{
+  "name": "operasional-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "next dev --webpack --hostname 127.0.0.1",
+    "build": "next build --webpack",
+    "start": "next start --hostname 127.0.0.1",
+    "db:backup": "node scripts/backup-local-db.mjs",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fluentui/react-calendar-compat": "^0.4.8",
+    "@fluentui/react-calendar-preview": "^0.2.0",
+    "@fluentui/react-charts": "^9.3.29",
+    "@fluentui/react-components": "^9.75.2",
+    "@fluentui/react-datepicker-compat": "^0.6.41",
+    "@fluentui/react-icons": "^2.0.345",
+    "@fluentui/react-motion-components-preview": "^0.15.10",
+    "@hookform/resolvers": "^7.0.5",
+    "@react-pdf/renderer": "^4.9.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.119.2",
+    "country-codes-flags-phone-codes": "^1.1.1",
+    "date-fns": "^4.4.0",
+    "exceljs": "^4.4.0",
+    "flag-icons": "^7.6.0",
+    "google-auth-library": "^11.3.4",
+    "libphonenumber-js": "^1.13.17",
+    "next": "16.4.6",
+    "nodemailer": "^10.6.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-hook-form": "^7.91.0",
+    "recharts": "^3.10.1",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "4.3.3",
+    "@types/node": "^26.6.6",
+    "@types/nodemailer": "^8.0.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.6",
+    "tailwindcss": "4.3.3",
+    "typescript": "^5"
+  }
+}

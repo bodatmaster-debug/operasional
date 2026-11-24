@@ -1,0 +1,44 @@
+[
+  {
+    "standardNo": 2006,
+    "sourceNo": 6,
+    "sourceRow": 12,
+    "sourceLabel": "Sheet Alsintor Seragam Perabot · Kelompok B no. 6 · baris 12 · Ps. 4.1.1e",
+    "name": "Seragam relawan (3 stel × 51 orang)",
+    "groupCode": "B",
+    "groupName": "Seragam & Tanda Pengenal",
+    "quantityText": "153 buah",
+    "quantity": 153,
+    "unit": "buah",
+    "note": "Nilai mengikuti teks sumber 3 stel × 51 orang. Angka 51 berbeda dari maksimum 47 relawan untuk 2.001–3.000 penerima manfaat yang tercatat pada Tabel 4 dan Ps. 4.9.4c; perlu verifikasi dan tidak digunakan sebagai pembanding.",
+    "quantityUncertain": true
+  },
+  {
+    "standardNo": 2007,
+    "sourceNo": 7,
+    "sourceRow": 13,
+    "sourceLabel": "Sheet Alsintor Seragam Perabot · Kelompok B no. 7 · baris 13 · Ps. 4.1.1f",
+    "name": "Name tag ruangan",
+    "groupCode": "B",
+    "groupName": "Seragam & Tanda Pengenal",
+    "quantityText": "Wajib · set",
+    "quantity": null,
+    "unit": "set",
+    "note": "Workbook menyebut Wajib tanpa jumlah numerik. Jumlah aktual dicatat terpisah; status perbandingan perlu verifikasi.",
+    "quantityUncertain": false
+  },
+  {
+    "standardNo": 2008,
+    "sourceNo": 8,
+    "sourceRow": 14,
+    "sourceLabel": "Sheet Alsintor Seragam Perabot · Kelompok B no. 8 · baris 14 · Ps. 3.4g",
+    "name": "Papan nama SPPG",
+    "groupCode": "B",
+    "groupName": "Seragam & Tanda Pengenal",
+    "quantityText": "Wajib · unit",
+    "quantity": null,
+    "unit": "unit",
+    "note": "Workbook menyebut Wajib tanpa jumlah numerik. Jumlah aktual dicatat terpisah; status perbandingan perlu verifikasi.",
+    "quantityUncertain": false
+  }
+]

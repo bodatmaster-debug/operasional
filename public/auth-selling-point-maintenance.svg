@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" fill="none">
+  <defs>
+    <linearGradient id="space" x1="800" y1="0" x2="800" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DBE8E2"/>
+      <stop offset=".52" stop-color="#9FB6A9"/>
+      <stop offset="1" stop-color="#5F7772"/>
+    </linearGradient>
+    <linearGradient id="bench" x1="800" y1="604" x2="800" y2="910" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B5C8BB"/>
+      <stop offset="1" stop-color="#718A7D"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#space)" d="M0 0h1600v1000H0z"/>
+  <path fill="#F3E6C7" fill-opacity=".3" d="M0 0h1600v250H0z"/>
+  <path stroke="#EAF0E5" stroke-opacity=".33" stroke-width="18" d="m0 142 530 106m1070-106-530 106"/>
+  <path fill="#6F8980" fill-opacity=".36" d="M90 272h1420v402H90z"/>
+  <path fill="#D8E3D8" fill-opacity=".48" d="M170 332h360v248H170zm900 0h360v248h-360z"/>
+  <path stroke="#EDF0E3" stroke-opacity=".45" stroke-width="12" d="M223 390h252m-252 48h198m-198 48h226m-226 48h160m-105-216v245"/>
+  <path stroke="#EDF0E3" stroke-opacity=".45" stroke-width="12" d="M1152 390h252m-252 48h198m-198 48h226m-226 48h160m105-216v245"/>
+  <path fill="url(#bench)" d="M0 644h1600v356H0z"/>
+  <path fill="#718980" d="M180 638h1240v56H180z"/>
+  <path fill="#58716D" d="M280 694h64v208h-64zm976 0h64v208h-64z"/>
+  <path fill="#D1B06B" d="M447 492h706v165H447z"/>
+  <path fill="#E4D7B3" fill-opacity=".72" d="M512 529h580v91H512z"/>
+  <path stroke="#779088" stroke-width="18" d="M575 557h453m-453 34h328"/>
+  <g fill="#91AAA0" stroke="#EAF0E5" stroke-opacity=".52" stroke-width="12">
+    <circle cx="800" cy="399" r="105"/>
+    <circle cx="800" cy="399" r="38" fill="#6E8980"/>
+  </g>
+  <g fill="#D8B66D">
+    <rect x="706" y="278" width="188" height="34" rx="17"/>
+    <rect x="706" y="486" width="188" height="34" rx="17"/>
+    <rect x="679" y="306" width="34" height="188" rx="17"/>
+    <rect x="887" y="306" width="34" height="188" rx="17"/>
+    <rect x="718" y="318" width="34" height="188" rx="17" transform="rotate(-45 718 318)"/>
+    <rect x="848" y="465" width="34" height="188" rx="17" transform="rotate(-45 848 465)"/>
+  </g>
+  <path stroke="#F2E6C8" stroke-opacity=".42" stroke-width="10" d="M0 916h1600"/>
+</svg>
