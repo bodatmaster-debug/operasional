@@ -4,6 +4,13 @@ import { isResponse, readJsonObject } from "@/lib/local-request"
 import { requireSupabasePermission } from "@/lib/supabase-request"
 import { getSupabaseRuntimeClient } from "@/lib/supabase-runtime"
 
+type MaintenanceNeedInput = {
+  name: string
+  quantity: number
+  unit: string
+  notes?: string
+}
+
 export async function GET(request: NextRequest) {
   const user = await requireSupabasePermission(request, "maintenance", "maintenance")
   if (isResponse(user)) return user
@@ -11,7 +18,6 @@ export async function GET(request: NextRequest) {
   const { data: schedules, error } = await supabase.from("maintenance_schedule").select("*").order("scheduled_date")
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   const { data: needs } = await supabase.from("maintenance_schedule_need").select("*").order("position")
-  const { data: assignees } = await supabase.from("maintenance_schedule_assignee").select("schedule_id, maintenance_assignee(name,role)")
   const needsById = new Map<string, unknown[]>()
   for (const need of needs ?? []) {
     const rows = needsById.get(String(need.schedule_id)) ?? []
@@ -27,6 +33,18 @@ export async function POST(request: NextRequest) {
   if (isResponse(user)) return user
   const body = await readJsonObject(request)
   if (!body) return NextResponse.json({ error: "Isi permintaan bukan JSON yang valid." }, { status: 400 })
+
+  const assigneeIds: string[] = Array.isArray(body.assigneeIds)
+    ? body.assigneeIds.filter((value): value is string => typeof value === "string")
+    : []
+  const needs: MaintenanceNeedInput[] = Array.isArray(body.needs)
+    ? body.needs.filter((value): value is MaintenanceNeedInput => {
+        if (typeof value !== "object" || value === null) return false
+        const need = value as Record<string, unknown>
+        return typeof need.name === "string" && typeof need.quantity === "number" && typeof need.unit === "string"
+      })
+    : []
+
   const supabase = await getSupabaseRuntimeClient()
   const id = randomUUID()
   const now = new Date().toISOString()
@@ -49,10 +67,10 @@ export async function POST(request: NextRequest) {
   }
   const { data, error } = await supabase.from("maintenance_schedule").insert(schedule).select("*").single()
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-  for (const assigneeId of body.assigneeIds ?? []) {
+  for (const assigneeId of assigneeIds) {
     await supabase.from("maintenance_schedule_assignee").insert({ schedule_id: id, assignee_id: assigneeId })
   }
-  for (const [position, need] of (body.needs ?? []).entries()) {
+  for (const [position, need] of needs.entries()) {
     await supabase.from("maintenance_schedule_need").insert({ schedule_id: id, position, name: need.name, quantity: need.quantity, unit: need.unit, notes: need.notes ?? "" })
   }
   return NextResponse.json({ record: data }, { status: 201 })

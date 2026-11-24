@@ -11,25 +11,30 @@ export async function GET(request: NextRequest) {
   if (kind !== "yayasan" && kind !== "sppg") {
     return NextResponse.json({ error: "Jenis direktori tidak valid." }, { status: 400 })
   }
-  const supabase = await getSupabaseRuntimeClient()
   const id = request.nextUrl.searchParams.get("id")?.trim()
+  const supabase = await getSupabaseRuntimeClient()
 
   if (kind === "yayasan") {
-    let query = supabase.from("yayasan").select("*").order("nama", { ascending: true })
-    if (id) query = supabase.from("yayasan").select("*").eq("id", id).maybeSingle()
-    const { data, error } = await query
+    if (id) {
+      const { data, error } = await supabase.from("yayasan").select("*").eq("id", id).maybeSingle()
+      if (error) return NextResponse.json({ error: "Data Yayasan gagal dimuat." }, { status: 500 })
+      return NextResponse.json({ record: data }, { headers: { "Cache-Control": "no-store" } })
+    }
+    const { data, error } = await supabase.from("yayasan").select("*").order("nama", { ascending: true })
     if (error) return NextResponse.json({ error: "Data Yayasan gagal dimuat." }, { status: 500 })
-    return NextResponse.json(id ? { record: data } : { records: data }, { headers: { "Cache-Control": "no-store" } })
+    return NextResponse.json({ records: data }, { headers: { "Cache-Control": "no-store" } })
   }
 
-  let query = supabase
-    .from("sppg")
-    .select("*, yayasan:nama")
-    .order("nama", { ascending: true })
-  if (id) query = supabase.from("sppg").select("*, yayasan:nama").eq("id", id).maybeSingle()
-  const { data, error } = await query
+  if (id) {
+    const { data, error } = await supabase.from("sppg").select("*, yayasan(nama)").eq("id", id).maybeSingle()
+    if (error) return NextResponse.json({ error: "Data SPPG gagal dimuat." }, { status: 500 })
+    const record = data && typeof data === "object" ? { ...data, yayasan: (data as { yayasan?: { nama?: string } }).yayasan?.nama ?? "" } : data
+    return NextResponse.json({ record }, { headers: { "Cache-Control": "no-store" } })
+  }
+  const { data, error } = await supabase.from("sppg").select("*, yayasan(nama)").order("nama", { ascending: true })
   if (error) return NextResponse.json({ error: "Data SPPG gagal dimuat." }, { status: 500 })
-  return NextResponse.json(id ? { record: data } : { records: data }, { headers: { "Cache-Control": "no-store" } })
+  const records = (data ?? []).map((row) => ({ ...row, yayasan: (row as { yayasan?: { nama?: string } }).yayasan?.nama ?? "" }))
+  return NextResponse.json({ records }, { headers: { "Cache-Control": "no-store" } })
 }
 
 export async function POST(request: NextRequest) {
@@ -84,7 +89,7 @@ export async function PUT(request: NextRequest) {
   if (user.role !== "admin" && !user.permissions?.directory) {
     return NextResponse.json({ error: "Akun ini tidak memiliki izin mengelola direktori." }, { status: 403 })
   }
-  const target = new URL(request.url).searchParams
+  const target = request.nextUrl.searchParams
   const kind = target.get("kind")
   const id = target.get("id")
   const body = await readJsonObject(request)
@@ -107,9 +112,8 @@ export async function DELETE(request: NextRequest) {
   if (user.role !== "admin" && !user.permissions?.directory) {
     return NextResponse.json({ error: "Akun ini tidak memiliki izin mengelola direktori." }, { status: 403 })
   }
-  const target = new URL(request.url).searchParams
-  const kind = target.get("kind")
-  const id = target.get("id")
+  const kind = request.nextUrl.searchParams.get("kind")
+  const id = request.nextUrl.searchParams.get("id")
   const table = kind === "yayasan" ? "yayasan" : kind === "sppg" ? "sppg" : null
   if (!table || !id) return NextResponse.json({ error: "Target direktori tidak valid." }, { status: 400 })
   const supabase = await getSupabaseRuntimeClient()
