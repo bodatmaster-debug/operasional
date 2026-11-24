@@ -1,172 +1,94 @@
 import { NextResponse, type NextRequest } from "next/server"
-import {
-  createAccount,
-  isLocalRole,
-  listAccounts,
-  listRolePagePermissions,
-  listRolePermissions,
-  LocalAuthError,
-  approveRegistration,
-  listPendingRegistrations,
-  rejectRegistration,
-  updateRolePermissions,
-  updateManagedAccountRole,
-  setManagedAccountAccessRevoked,
-  setManagedAccountBan,
-  clearManagedAccountBan,
-  deleteManagedAccount,
-} from "@/lib/local-auth"
-import { isResponse, readJsonObject, requireLocalUser } from "@/lib/local-request"
+import { getSupabaseRuntimeClient } from "@/lib/supabase-runtime"
+import { requireSupabaseUser } from "@/lib/supabase-request"
+import { isResponse, readJsonObject } from "@/lib/local-request"
 
-export function GET(request: NextRequest) {
-  const user = requireLocalUser(request)
+export async function GET(request: NextRequest) {
+  const user = await requireSupabaseUser(request)
   if (isResponse(user)) return user
-  if (user.role !== "admin") {
-    return NextResponse.json(
-      { error: "Hanya Admin yang dapat mengelola akun lokal." },
-      { status: 403 },
-    )
-  }
+  if (user.role !== "admin") return NextResponse.json({ error: "Hanya Admin yang dapat mengelola akun." }, { status: 403 })
+  const supabase = await getSupabaseRuntimeClient()
+
+  const [accounts, pending, rolePermissions, rolePagePermissions] = await Promise.all([
+    supabase.from("user_profiles").select("*").order("username"),
+    supabase.from("user_profiles").select("*").eq("status", "pending"),
+    supabase.from("role_permissions").select("*"),
+    supabase.from("role_page_permissions").select("*"),
+  ])
+
   return NextResponse.json({
     currentAccountId: user.id,
-    accounts: listAccounts(),
-    pendingRegistrations: listPendingRegistrations(),
-    rolePermissions: listRolePermissions(),
-    rolePagePermissions: listRolePagePermissions(),
-  }, {
-    headers: { "Cache-Control": "no-store" },
-  })
+    accounts: accounts.data ?? [],
+    pendingRegistrations: pending.data ?? [],
+    rolePermissions: rolePermissions.data ?? [],
+    rolePagePermissions: rolePagePermissions.data ?? [],
+  }, { headers: { "Cache-Control": "no-store" } })
 }
 
 export async function PATCH(request: NextRequest) {
-  const user = requireLocalUser(request, true)
+  const user = await requireSupabaseUser(request)
   if (isResponse(user)) return user
-  if (user.role !== "admin") {
-    return NextResponse.json(
-      { error: "Hanya Admin yang dapat mengelola akun lokal." },
-      { status: 403 },
-    )
-  }
+  if (user.role !== "admin") return NextResponse.json({ error: "Hanya Admin yang dapat mengelola akun." }, { status: 403 })
   const body = await readJsonObject(request)
-  if (!body || typeof body.action !== "string") {
-    return NextResponse.json(
-      { error: "Isi permintaan bukan JSON yang valid." },
-      { status: 400 },
-    )
-  }
+  if (!body || typeof body.action !== "string") return NextResponse.json({ error: "Isi permintaan tidak valid." }, { status: 400 })
+  const supabase = await getSupabaseRuntimeClient()
 
-  try {
-    if (body.action === "approve") {
-      approveRegistration(body.registrationId, body.role, user.id)
-      return NextResponse.json({ ok: true })
-    }
-    if (body.action === "reject") {
-      rejectRegistration(body.registrationId, user.id)
-      return NextResponse.json({ ok: true })
-    }
-    if (body.action === "role-permissions") {
-      const permissions = updateRolePermissions(
-        body.role,
-        body.permissions,
-        body.pagePermissions,
-      )
-      return NextResponse.json(permissions)
-    }
-    if (body.action === "account-role") {
-      updateManagedAccountRole(body.accountId, body.role, user.id)
-      return NextResponse.json({ ok: true })
-    }
-    if (body.action === "revoke-access") {
-      setManagedAccountAccessRevoked(body.accountId, user.id, true)
-      return NextResponse.json({ ok: true })
-    }
-    if (body.action === "restore-access") {
-      setManagedAccountAccessRevoked(body.accountId, user.id, false)
-      return NextResponse.json({ ok: true })
-    }
-    if (body.action === "ban-account") {
-      const bannedUntil = setManagedAccountBan(
-        body.accountId,
-        user.id,
-        body.durationDays,
-      )
-      return NextResponse.json({ bannedUntil })
-    }
-    if (body.action === "unban-account") {
-      clearManagedAccountBan(body.accountId, user.id)
-      return NextResponse.json({ ok: true })
-    }
-    if (body.action === "delete-account") {
-      deleteManagedAccount(body.accountId, user.id)
-      return NextResponse.json({ ok: true })
-    }
-    return NextResponse.json({ error: "Aksi akun tidak valid." }, { status: 400 })
-  } catch (error) {
-    if (error instanceof LocalAuthError) {
-      if (error.code === "account-not-found") {
-        return NextResponse.json({ error: error.message }, { status: 404 })
+  if (body.action === "approve") {
+    const { error } = await supabase.from("user_profiles").update({ status: "active", role: body.role ?? "user", yayasan_id: body.yayasanId ?? null, updated_at: new Date().toISOString() }).eq("user_id", body.registrationId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+    return NextResponse.json({ ok: true })
+  }
+  if (body.action === "reject") {
+    const { error } = await supabase.from("user_profiles").update({ status: "rejected", updated_at: new Date().toISOString() }).eq("user_id", body.registrationId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+    return NextResponse.json({ ok: true })
+  }
+  if (body.action === "role-permissions") {
+    const permissions = body.permissions as Record<string, unknown> | undefined
+    const pagePermissions = body.pagePermissions as Record<string, boolean> | undefined
+    const role = body.role as string
+    const { error } = await supabase.from("role_permissions").update({
+      can_manage_directory: permissions?.directory ? 1 : 0,
+      can_manage_assets: permissions?.assets ? 1 : 0,
+      can_manage_maintenance: permissions?.maintenance ? 1 : 0,
+    }).eq("role", role)
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+    if (pagePermissions) {
+      for (const [page, canAccess] of Object.entries(pagePermissions)) {
+        await supabase.from("role_page_permissions").update({ can_access: canAccess ? 1 : 0 }).eq("role", role).eq("page", page)
       }
-      if (
-        error.code === "admin-access-required"
-      ) {
-        return NextResponse.json({ error: error.message }, { status: 403 })
-      }
-      if (
-        error.code === "cannot-manage-self" ||
-        error.code === "last-admin" ||
-        error.code === "account-status-conflict"
-      ) {
-        return NextResponse.json({ error: error.message }, { status: 409 })
-      }
-      const status =
-        error.code === "username-taken" ||
-        error.code === "email-taken" ||
-        error.code === "registration-not-found"
-          ? 409
-          : 400
-      return NextResponse.json({ error: error.message }, { status })
     }
-    console.error("Local account update failed.", error)
-    return NextResponse.json(
-      { error: "Aplikasi gagal memperbarui akun lokal." },
-      { status: 500 },
-    )
+    return NextResponse.json({ ok: true })
   }
-}
-
-export async function POST(request: NextRequest) {
-  const user = requireLocalUser(request, true)
-  if (isResponse(user)) return user
-  if (user.role !== "admin") {
-    return NextResponse.json(
-      { error: "Hanya Admin yang dapat membuat akun lokal." },
-      { status: 403 },
-    )
+  if (body.action === "account-role") {
+    const { error } = await supabase.from("user_profiles").update({ role: body.role, updated_at: new Date().toISOString() }).eq("user_id", body.accountId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+    return NextResponse.json({ ok: true })
   }
-
-  const body = await readJsonObject(request)
-  if (!body) {
-    return NextResponse.json(
-      { error: "Isi permintaan bukan JSON yang valid." },
-      { status: 400 },
-    )
+  if (body.action === "revoke-access") {
+    const { error } = await supabase.from("user_profiles").update({ access_revoked_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("user_id", body.accountId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+    return NextResponse.json({ ok: true })
   }
-  if (!isLocalRole(body.role)) {
-    return NextResponse.json({ error: "Peran akun tidak valid." }, { status: 400 })
+  if (body.action === "restore-access") {
+    const { error } = await supabase.from("user_profiles").update({ access_revoked_at: null, updated_at: new Date().toISOString() }).eq("user_id", body.accountId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+    return NextResponse.json({ ok: true })
   }
-
-  try {
-    const account = await createAccount(body.username, body.password, body.role)
-    return NextResponse.json({ account }, { status: 201 })
-  } catch (error) {
-    if (error instanceof LocalAuthError) {
-      const status = error.code === "username-taken" ? 409 : 400
-      return NextResponse.json({ error: error.message }, { status })
-    }
-    console.error("Local account creation failed.", error)
-    return NextResponse.json(
-      { error: "Aplikasi gagal membuat akun lokal." },
-      { status: 500 },
-    )
+  if (body.action === "ban-account") {
+    const durationDays = Number(body.durationDays)
+    const bannedUntil = new Date(Date.now() + (Number.isFinite(durationDays) ? durationDays : 0) * 86400000).toISOString()
+    const { error } = await supabase.from("user_profiles").update({ banned_until: bannedUntil, updated_at: new Date().toISOString() }).eq("user_id", body.accountId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+    return NextResponse.json({ bannedUntil })
   }
+  if (body.action === "unban-account") {
+    const { error } = await supabase.from("user_profiles").update({ banned_until: null, updated_at: new Date().toISOString() }).eq("user_id", body.accountId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+    return NextResponse.json({ ok: true })
+  }
+  if (body.action === "delete-account") {
+    return NextResponse.json({ error: "Penghapusan akun Auth memerlukan Supabase Admin API/service role." }, { status: 501 })
+  }
+  return NextResponse.json({ error: "Aksi akun tidak valid." }, { status: 400 })
 }
