@@ -1,70 +1,20 @@
 import { NextResponse, type NextRequest } from "next/server"
-import {
-  changeOwnPassword,
-  LocalAuthError,
-  SESSION_COOKIE,
-  verifyOwnPassword,
-} from "@/lib/local-auth"
-import { isResponse, readJsonObject, requireLocalUser } from "@/lib/local-request"
+import { isResponse, requireSupabaseUser } from "@/lib/supabase-request"
+import { createClient } from "@/utils/supabase/server"
+import { cookies } from "next/headers"
 
 export async function POST(request: NextRequest) {
-  const user = requireLocalUser(request, true)
+  const user = await requireSupabaseUser(request)
   if (isResponse(user)) return user
-  if (user.role !== "admin") {
-    return NextResponse.json(
-      { error: "Hanya Admin yang dapat mengelola akun lokal." },
-      { status: 403 },
-    )
-  }
-
-  const body = await readJsonObject(request)
-  if (!body) {
-    return NextResponse.json(
-      { error: "Isi permintaan bukan JSON yang valid." },
-      { status: 400 },
-    )
-  }
-
-  const sessionToken = request.cookies.get(SESSION_COOKIE)?.value
-  if (!sessionToken) {
-    return NextResponse.json(
-      { error: "Sesi tidak valid atau telah berakhir. Masuk kembali." },
-      { status: 401 },
-    )
-  }
-
-  try {
-    if (body.action === "verify-current") {
-      await verifyOwnPassword(user.id, body.currentPassword)
-      return NextResponse.json({ ok: true })
-    }
-    if (body.action !== undefined && body.action !== "change") {
-      return NextResponse.json(
-        { error: "Aksi password tidak valid." },
-        { status: 400 },
-      )
-    }
-    await changeOwnPassword(
-      user.id,
-      body.currentPassword,
-      body.newPassword,
-      sessionToken,
-    )
-    return NextResponse.json({ ok: true })
-  } catch (error) {
-    if (error instanceof LocalAuthError) {
-      const status =
-        error.code === "account-locked"
-          ? 429
-          : error.code === "account-updated"
-            ? 409
-            : 400
-      return NextResponse.json({ error: error.message }, { status })
-    }
-    console.error("Local account password change failed.", error)
-    return NextResponse.json(
-      { error: "Aplikasi gagal memperbarui password akun." },
-      { status: 500 },
-    )
-  }
+  const body = await request.json().catch(() => null) as Record<string, unknown> | null
+  if (!body || typeof body.currentPassword !== "string" || typeof body.newPassword !== "string") return NextResponse.json({ error: "Password saat ini dan password baru wajib diisi." }, { status: 400 })
+  if (body.newPassword.length < 12 || body.newPassword.length > 128) return NextResponse.json({ error: "Password baru harus 12–128 karakter." }, { status: 400 })
+  const supabase = createClient(await cookies())
+  const { data: authData, error: authError } = await supabase.auth.getUser()
+  if (authError || !authData.user?.email) return NextResponse.json({ error: "Sesi tidak valid." }, { status: 401 })
+  const { error: verifyError } = await supabase.auth.signInWithPassword({ email: authData.user.email, password: body.currentPassword })
+  if (verifyError) return NextResponse.json({ error: "Password saat ini tidak cocok." }, { status: 400 })
+  const { error } = await supabase.auth.updateUser({ password: body.newPassword })
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+  return NextResponse.json({ ok: true })
 }
