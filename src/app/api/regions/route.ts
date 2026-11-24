@@ -7,7 +7,7 @@ import {
 import { isResponse, requireLocalUser } from "@/lib/local-request"
 
 export async function GET(request: NextRequest) {
-  const user = requireLocalUser(request)
+  const user = await requireLocalUser(request)
   if (isResponse(user)) return user
 
   const parentCode = request.nextUrl.searchParams.get("parentCode")
@@ -17,9 +17,10 @@ export async function GET(request: NextRequest) {
     !isProvinceRequest &&
     (!parentCode || request.nextUrl.searchParams.has("level"))
   ) {
-    return NextResponse.json({ error: "Tingkat atau kode wilayah tidak valid." }, {
-      status: 400,
-    })
+    return NextResponse.json(
+      { error: "Tingkat atau kode wilayah tidak valid." },
+      { status: 400 },
+    )
   }
 
   try {
