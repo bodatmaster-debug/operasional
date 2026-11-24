@@ -1,153 +1,38 @@
-import type { DatabaseSync } from "node:sqlite"
 import { NextResponse, type NextRequest } from "next/server"
-import { getLocalDatabase } from "@/lib/local-database"
-import {
-  isResponse,
-  readJsonObject,
-  requireLocalPagePermission,
-  requireLocalPermission,
-} from "@/lib/local-request"
-import {
-  GasInstallationValidationError,
-  readGasInstallationInput,
-} from "@/lib/gas-installation"
+import { randomUUID } from "node:crypto"
+import { isResponse, readJsonObject } from "@/lib/local-request"
+import { requireSupabasePermission } from "@/lib/supabase-request"
+import { getSupabaseRuntimeClient } from "@/lib/supabase-runtime"
 
-class GasInstallationNotFoundError extends Error {}
-
-function requireGasInstallationManager(request: NextRequest) {
-  return requireLocalPermission(
-    request,
-    "assets",
-    true,
-    "asset-recording",
-  )
-}
-
-function withImmediateTransaction<T>(db: DatabaseSync, operation: () => T): T {
-  db.exec("BEGIN IMMEDIATE")
-  try {
-    const result = operation()
-    db.exec("COMMIT")
-    return result
-  } catch (error) {
-    if (db.isTransaction) db.exec("ROLLBACK")
-    throw error
-  }
-}
-
-export function GET(request: NextRequest) {
-  const user = requireLocalPagePermission(request, "asset-recording")
+export async function GET(request: NextRequest) {
+  const user = await requireSupabasePermission(request, "assets", "asset-recording")
   if (isResponse(user)) return user
-
   const sppgId = request.nextUrl.searchParams.get("sppgId")?.trim()
-  if (!sppgId || sppgId.length > 120) {
-    return NextResponse.json(
-      { error: "SPPG wajib dipilih untuk membaca konfigurasi instalasi gas." },
-      { status: 400 },
-    )
-  }
-
-  try {
-    const db = getLocalDatabase()
-    const sppg = db.prepare("SELECT id FROM sppg WHERE id = ?").get(sppgId)
-    if (!sppg) {
-      return NextResponse.json({ error: "SPPG tidak ditemukan." }, { status: 404 })
-    }
-
-    const record = db
-      .prepare(
-        `SELECT sppg_id, safety_system_present, high_pressure_present,
-                high_pressure_line_count, low_pressure_present,
-                low_pressure_line_count, created_at, updated_at
-         FROM sppg_gas_installation
-         WHERE sppg_id = ?`,
-      )
-      .get(sppgId)
-
-    return NextResponse.json(
-      { record: record ?? null },
-      { headers: { "Cache-Control": "no-store" } },
-    )
-  } catch (error) {
-    console.error("Local gas installation read failed.", error)
-    return NextResponse.json(
-      { error: "Kondisi instalasi gas lokal gagal dimuat." },
-      { status: 500 },
-    )
-  }
+  if (!sppgId) return NextResponse.json({ error: "SPPG wajib dipilih." }, { status: 400 })
+  const supabase = await getSupabaseRuntimeClient()
+  const { data, error } = await supabase.from("sppg_gas_installation").select("*").eq("sppg_id", sppgId).maybeSingle()
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ record: data }, { headers: { "Cache-Control": "no-store" } })
 }
 
 export async function PUT(request: NextRequest) {
-  const user = requireGasInstallationManager(request)
+  const user = await requireSupabasePermission(request, "assets", "asset-recording")
   if (isResponse(user)) return user
-
   const body = await readJsonObject(request)
-  if (!body) {
-    return NextResponse.json(
-      { error: "Isi permintaan bukan JSON yang valid." },
-      { status: 400 },
-    )
+  if (!body?.sppgId) return NextResponse.json({ error: "SPPG wajib dipilih." }, { status: 400 })
+  const supabase = await getSupabaseRuntimeClient()
+  const now = new Date().toISOString()
+  const row = {
+    sppg_id: body.sppgId,
+    safety_system_present: body.safetySystemPresent ? 1 : 0,
+    high_pressure_present: body.highPressurePresent ? 1 : 0,
+    high_pressure_line_count: body.highPressurePresent ? body.highPressureLineCount : null,
+    low_pressure_present: body.lowPressurePresent ? 1 : 0,
+    low_pressure_line_count: body.lowPressurePresent ? body.lowPressureLineCount : null,
+    created_at: now,
+    updated_at: now,
   }
-
-  try {
-    const input = readGasInstallationInput(body)
-    const db = getLocalDatabase()
-    const now = new Date().toISOString()
-    const record = withImmediateTransaction(db, () => {
-      const sppg = db
-        .prepare("SELECT id FROM sppg WHERE id = ?")
-        .get(input.sppgId)
-      if (!sppg) {
-        throw new GasInstallationNotFoundError("SPPG tidak ditemukan.")
-      }
-
-      db.prepare(
-        `INSERT INTO sppg_gas_installation (
-           sppg_id, safety_system_present, high_pressure_present,
-           high_pressure_line_count, low_pressure_present,
-           low_pressure_line_count, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (sppg_id) DO UPDATE SET
-           safety_system_present = excluded.safety_system_present,
-           high_pressure_present = excluded.high_pressure_present,
-           high_pressure_line_count = excluded.high_pressure_line_count,
-           low_pressure_present = excluded.low_pressure_present,
-           low_pressure_line_count = excluded.low_pressure_line_count,
-           updated_at = excluded.updated_at`,
-      ).run(
-        input.sppgId,
-        Number(input.safetySystemPresent),
-        Number(input.highPressurePresent),
-        input.highPressureLineCount,
-        Number(input.lowPressurePresent),
-        input.lowPressureLineCount,
-        now,
-        now,
-      )
-
-      return db
-        .prepare(
-          `SELECT sppg_id, safety_system_present, high_pressure_present,
-                  high_pressure_line_count, low_pressure_present,
-                  low_pressure_line_count, created_at, updated_at
-           FROM sppg_gas_installation
-           WHERE sppg_id = ?`,
-        )
-        .get(input.sppgId)
-    })
-
-    return NextResponse.json({ record })
-  } catch (error) {
-    if (error instanceof GasInstallationValidationError) {
-      return NextResponse.json({ error: error.message }, { status: 400 })
-    }
-    if (error instanceof GasInstallationNotFoundError) {
-      return NextResponse.json({ error: error.message }, { status: 404 })
-    }
-    console.error("Local gas installation write failed.", error)
-    return NextResponse.json(
-      { error: "Kondisi instalasi gas lokal gagal disimpan." },
-      { status: 500 },
-    )
-  }
+  const { data, error } = await supabase.from("sppg_gas_installation").upsert(row, { onConflict: "sppg_id" }).select("*").single()
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+  return NextResponse.json({ record: data })
 }

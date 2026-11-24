@@ -1,140 +1,34 @@
-import { randomUUID } from "node:crypto"
 import { NextResponse, type NextRequest } from "next/server"
-import { getLocalDatabase } from "@/lib/local-database"
-import { parseRABInput, type RABRecord } from "@/lib/rab"
-import { readRABRecord, withImmediateTransaction } from "@/lib/rab-storage"
-import {
-  isResponse,
-  readJsonObject,
-  requireLocalPagePermission,
-  requireLocalPermission,
-} from "@/lib/local-request"
+import { randomUUID } from "node:crypto"
+import { isResponse, readJsonObject } from "@/lib/local-request"
+import { requireSupabasePermission } from "@/lib/supabase-request"
+import { getSupabaseRuntimeClient } from "@/lib/supabase-runtime"
 
-class RABNotFoundError extends Error {}
-
-export function GET(request: NextRequest) {
-  const user = requireLocalPagePermission(request, "maintenance")
+export async function GET(request: NextRequest) {
+  const user = await requireSupabasePermission(request, "maintenance", "maintenance")
   if (isResponse(user)) return user
-
-  try {
-    const db = getLocalDatabase()
-    const records = db
-      .prepare(
-        `SELECT r.id, r.rab_date, r.sppg_id, r.sppg_name, r.assignee_id, r.assignee_name,
-                r.created_by, r.created_at,
-                COUNT(i.position) AS item_count,
-                COALESCE(SUM(i.quantity * i.estimated_unit_cost), 0)
-                  AS grand_total
-         FROM rab_proposal r
-         LEFT JOIN rab_proposal_item i ON i.rab_id = r.id
-         GROUP BY r.id
-         ORDER BY r.created_at DESC, r.id`,
-      )
-      .all()
-    const recordsWithItems = records.map((record) =>
-      readRABRecord(db, String((record as { id: string }).id)),
-    ).filter((record): record is RABRecord => Boolean(record))
-    return NextResponse.json(
-      { records: recordsWithItems },
-      { headers: { "Cache-Control": "no-store" } },
-    )
-  } catch (error) {
-    console.error("Local RAB list failed.", error)
-    return NextResponse.json(
-      { error: "Daftar RAB lokal gagal dimuat." },
-      { status: 500 },
-    )
-  }
+  const supabase = await getSupabaseRuntimeClient()
+  const { data, error } = await supabase.from("rab_proposal").select("*, rab_proposal_item(*)").order("created_at", { ascending: false })
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ records: data }, { headers: { "Cache-Control": "no-store" } })
 }
 
-export async function POST(request: NextRequest) {
-  const user = requireLocalPermission(
-    request,
-    "maintenance",
-    true,
-    "maintenance",
-  )
+export async async function POST(request: NextRequest) {
+  const user = await requireSupabasePermission(request, "maintenance", "maintenance")
   if (isResponse(user)) return user
-
   const body = await readJsonObject(request)
-  if (!body) {
-    return NextResponse.json(
-      { error: "Isi permintaan bukan JSON yang valid." },
-      { status: 400 },
-    )
+  if (!body) return NextResponse.json({ error: "Isi permintaan bukan JSON yang valid." }, { status: 400 })
+  const supabase = await getSupabaseRuntimeClient()
+  const id = randomUUID()
+  const now = new Date().toISOString()
+  const { data: sppg } = await supabase.from("sppg").select("id,nama").eq("id", body.sppgId).maybeSingle()
+  const { data: assignee } = await supabase.from("maintenance_assignee").select("id,name").eq("id", body.assigneeId).maybeSingle()
+  if (!sppg || !assignee) return NextResponse.json({ error: "SPPG atau petugas tidak ditemukan." }, { status: 404 })
+  const proposal = { id, rab_date: body.rabDate, sppg_id: sppg.id, sppg_name: sppg.nama, assignee_id: assignee.id, assignee_name: assignee.name, notes: body.notes ?? "", created_by: user.id, created_at: now }
+  const { data, error } = await supabase.from("rab_proposal").insert(proposal).select("*").single()
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+  for (const [position, item] of (body.items ?? []).entries()) {
+    await supabase.from("rab_proposal_item").insert({ rab_id: id, position, name: item.name, quantity: item.quantity, estimated_unit_cost: item.estimatedUnitCost, unit: item.unit ?? "" })
   }
-
-  const parsed = parseRABInput(body)
-  if (!parsed.ok) {
-    return NextResponse.json({ error: parsed.error }, { status: 400 })
-  }
-
-  try {
-    const db = getLocalDatabase()
-    const id = randomUUID()
-    const createdAt = new Date().toISOString()
-    const record = withImmediateTransaction(db, () => {
-      const sppg = db
-        .prepare("SELECT id, nama FROM sppg WHERE id = ?")
-        .get(parsed.input.sppgId) as { id: string; nama: string } | undefined
-      if (!sppg) throw new RABNotFoundError("SPPG tidak ditemukan.")
-
-      const assignee = db
-        .prepare("SELECT id, name FROM maintenance_assignee WHERE id = ?")
-        .get(parsed.input.assigneeId) as
-        | { id: string; name: string }
-        | undefined
-      if (!assignee) {
-        throw new RABNotFoundError(
-          "Petugas yang dipilih tidak lagi tersedia.",
-        )
-      }
-
-      db.prepare(
-        `INSERT INTO rab_proposal (
-           id, rab_date, sppg_id, sppg_name, assignee_id, assignee_name,
-           notes, created_by, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        id,
-        parsed.input.rabDate,
-        sppg.id,
-        sppg.nama,
-        assignee.id,
-        assignee.name,
-        parsed.input.notes,
-        user.id,
-        createdAt,
-      )
-      const addItem = db.prepare(
-        `INSERT INTO rab_proposal_item (
-           rab_id, position, name, quantity, unit, estimated_unit_cost
-         ) VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      for (const [position, item] of parsed.input.items.entries()) {
-        addItem.run(
-          id,
-          position,
-          item.name,
-          item.quantity,
-          item.unit,
-          item.estimatedUnitCost,
-        )
-      }
-
-      const saved = readRABRecord(db, id)
-      if (!saved) throw new Error("Saved RAB record could not be read.")
-      return saved
-    })
-    return NextResponse.json({ record }, { status: 201 })
-  } catch (error) {
-    if (error instanceof RABNotFoundError) {
-      return NextResponse.json({ error: error.message }, { status: 404 })
-    }
-    console.error("Local RAB creation failed.", error)
-    return NextResponse.json(
-      { error: "RAB lokal gagal disimpan." },
-      { status: 500 },
-    )
-  }
+  return NextResponse.json({ record: data }, { status: 201 })
 }
